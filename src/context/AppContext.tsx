@@ -10,19 +10,18 @@ import {
   CustomerCar, 
   DealershipBranch, 
   Employee,
-  ServiceStatus 
+  ServiceStatus,
+  ServicePackage
 } from '../types';
 import { 
-  INITIAL_USERS, 
-  INITIAL_VEHICLES, 
-  INITIAL_PARTS, 
-  INITIAL_GARAGE, 
-  INITIAL_TEST_DRIVES, 
-  INITIAL_SERVICE_APPOINTMENTS, 
-  INITIAL_ORDERS, 
+  INITIAL_USERS,
+  INITIAL_VEHICLES,
+  INITIAL_PARTS,
   DEALERSHIP_BRANCHES, 
-  EMPLOYEES_DATA 
+  EMPLOYEES_DATA,
+  SERVICE_PACKAGES
 } from '../data/mockData';
+import * as api from '../services/api';
 
 export type NavigationPage = 
   | 'home' 
@@ -45,7 +44,10 @@ interface AppContextType {
   currentPage: NavigationPage;
   setCurrentPage: (page: NavigationPage) => void;
   currentUser: User;
-  switchUserRole: (role: 'customer' | 'admin') => void;
+  isAuthenticated: boolean;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (input: { name: string; email: string; password: string; phone?: string }) => Promise<void>;
+  signOut: () => void;
   hasDealershipAuthorization: boolean;
   grantDealershipAuthorization: () => void;
   isAuthModalOpen: boolean;
@@ -75,11 +77,12 @@ interface AppContextType {
   closeTestDriveModal: () => void;
   isTestDriveModalOpen: boolean;
   testDrives: TestDriveBooking[];
-  bookTestDrive: (booking: Omit<TestDriveBooking, 'id' | 'bookingRef' | 'createdDate' | 'status'>) => string;
+  bookTestDrive: (booking: Omit<TestDriveBooking, 'id' | 'bookingRef' | 'createdDate' | 'status'>) => Promise<string>;
   cancelTestDrive: (bookingId: string) => void;
 
   // Parts & Cart
   parts: Part[];
+  services: ServicePackage[];
   selectedPart: Part | null;
   setSelectedPart: (part: Part | null) => void;
   cart: CartItem[];
@@ -97,7 +100,7 @@ interface AppContextType {
     shippingAddress: string;
     deliveryMethod: 'Express Delivery' | 'Dealership Pickup';
     paymentMethod: string;
-  }) => Order;
+  }) => Promise<Order>;
 
   // Services & Appointments
   serviceAppointments: ServiceAppointment[];
@@ -116,7 +119,7 @@ interface AppContextType {
     pickupRequired: boolean;
     loanerCarRequired: boolean;
     notes?: string;
-  }) => string;
+  }) => Promise<string>;
   updateServiceStatus: (appointmentId: string, status: ServiceStatus, bayNumber?: number, technician?: string) => void;
   cancelServiceAppointment: (appointmentId: string) => void;
 
@@ -147,32 +150,27 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentPage, setCurrentPage] = useState<NavigationPage>('home');
-  // Default to Marcus Vance (Dealership General Manager / Admin) for full dealership authorization
-  const [currentUser, setCurrentUser] = useState<User>(INITIAL_USERS[1]);
+  const [currentUser, setCurrentUser] = useState<User>(() => api.getSavedUser() || INITIAL_USERS[0]);
+  const [isAuthenticated, setIsAuthenticated] = useState(api.hasSavedAccessToken);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // Vehicles state
-  const [vehicles, setVehicles] = useState<Vehicle[]>(() => {
-    const saved = localStorage.getItem('carcraft_vehicles');
-    return saved ? JSON.parse(saved) : INITIAL_VEHICLES;
-  });
+  const [vehicles, setVehicles] = useState<Vehicle[]>(INITIAL_VEHICLES);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
 
   // Wishlist & Compare
-  const [wishlist, setWishlist] = useState<string[]>(['veh-1', 'veh-2']);
+  const [wishlist, setWishlist] = useState<string[]>([]);
   const [compareList, setCompareList] = useState<Vehicle[]>([]);
   const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
 
   // Test Drive Modal
   const [testDriveVehicle, setTestDriveVehicle] = useState<Vehicle | null>(null);
   const [isTestDriveModalOpen, setIsTestDriveModalOpen] = useState(false);
-  const [testDrives, setTestDrives] = useState<TestDriveBooking[]>(() => {
-    const saved = localStorage.getItem('carcraft_test_drives');
-    return saved ? JSON.parse(saved) : INITIAL_TEST_DRIVES;
-  });
+  const [testDrives, setTestDrives] = useState<TestDriveBooking[]>([]);
 
   // Parts & Store
-  const [parts] = useState<Part[]>(INITIAL_PARTS);
+  const [parts, setParts] = useState<Part[]>(INITIAL_PARTS);
+  const [services, setServices] = useState<ServicePackage[]>(SERVICE_PACKAGES);
   const [selectedPart, setSelectedPart] = useState<Part | null>(null);
   const [cart, setCart] = useState<CartItem[]>(() => {
     const saved = localStorage.getItem('carcraft_cart');
@@ -184,27 +182,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Orders
   const [orders, setOrders] = useState<Order[]>(() => {
-    const saved = localStorage.getItem('carcraft_orders');
-    return saved ? JSON.parse(saved) : INITIAL_ORDERS;
+    return [];
   });
 
   // Services
-  const [serviceAppointments, setServiceAppointments] = useState<ServiceAppointment[]>(() => {
-    const saved = localStorage.getItem('carcraft_services');
-    return saved ? JSON.parse(saved) : INITIAL_SERVICE_APPOINTMENTS;
-  });
+  const [serviceAppointments, setServiceAppointments] = useState<ServiceAppointment[]>([]);
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
   const [preselectedServiceId, setPreselectedServiceId] = useState<string | null>(null);
 
   // Customer Garage
-  const [garage, setGarage] = useState<CustomerCar[]>(() => {
-    const saved = localStorage.getItem('carcraft_garage');
-    return saved ? JSON.parse(saved) : INITIAL_GARAGE;
-  });
+  const [garage, setGarage] = useState<CustomerCar[]>([]);
 
   // Dealership metadata
-  const [branches] = useState<DealershipBranch[]>(DEALERSHIP_BRANCHES);
-  const [employees] = useState<Employee[]>(EMPLOYEES_DATA);
+  const [branches, setBranches] = useState<DealershipBranch[]>(DEALERSHIP_BRANCHES);
+  const [employees, setEmployees] = useState<Employee[]>(EMPLOYEES_DATA);
 
   // Filters passed from Home hero
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
@@ -214,30 +205,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Toasts
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // LocalStorage persistence
-  useEffect(() => {
-    localStorage.setItem('carcraft_vehicles', JSON.stringify(vehicles));
-  }, [vehicles]);
-
+  // Keep the cart local until checkout; business records are loaded from Django.
   useEffect(() => {
     localStorage.setItem('carcraft_cart', JSON.stringify(cart));
   }, [cart]);
-
-  useEffect(() => {
-    localStorage.setItem('carcraft_orders', JSON.stringify(orders));
-  }, [orders]);
-
-  useEffect(() => {
-    localStorage.setItem('carcraft_test_drives', JSON.stringify(testDrives));
-  }, [testDrives]);
-
-  useEffect(() => {
-    localStorage.setItem('carcraft_services', JSON.stringify(serviceAppointments));
-  }, [serviceAppointments]);
-
-  useEffect(() => {
-    localStorage.setItem('carcraft_garage', JSON.stringify(garage));
-  }, [garage]);
 
   // Toast helper
   const showToast = (message: string, type: ToastMessage['type'] = 'success', title?: string) => {
@@ -252,44 +223,122 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // User switcher & Dealership Authorization
-  const grantDealershipAuthorization = () => {
-    setCurrentUser(INITIAL_USERS[1]);
-    setCurrentPage('admin');
-    showToast('Dealership Authorization Granted: Marcus Vance (General Manager) — Full ERP Access', 'success', 'Dealership Clearance Active');
+  const reportApiError = (error: unknown, title: string) => {
+    showToast(error instanceof Error ? error.message : 'The request could not be completed.', 'error', title);
   };
 
-  const switchUserRole = (role: 'customer' | 'admin') => {
-    if (role === 'admin') {
-      setCurrentUser(INITIAL_USERS[1]);
-      showToast('Switched to Dealership Executive & Admin view', 'info', 'Role: Marcus Vance (GM)');
-    } else {
+  useEffect(() => {
+    let active = true;
+    api.loadCatalog().then((catalog) => {
+      if (!active) return;
+      setVehicles(catalog.vehicles);
+      setParts(catalog.parts);
+      setServices(catalog.services);
+      setBranches(catalog.branches);
+      setEmployees(catalog.employees);
+    }).catch((error: unknown) => {
+      if (active) reportApiError(error, 'Backend connection');
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!api.hasSavedAccessToken()) return;
+    let active = true;
+    Promise.all([api.loadCurrentUser(), api.loadCustomerData()]).then(([user, data]) => {
+      if (!active) return;
+      setCurrentUser({ ...user, id: String(user.id) });
+      setIsAuthenticated(true);
+      setTestDrives(data.testDrives);
+      setServiceAppointments(data.serviceAppointments);
+      setOrders(data.orders);
+      setGarage(data.garage);
+    }).catch((error: unknown) => {
+      if (!active) return;
+      api.clearSession();
+      setIsAuthenticated(false);
       setCurrentUser(INITIAL_USERS[0]);
-      showToast('Switched to Customer account', 'info', 'Role: Alex Rivera (Client)');
+      reportApiError(error, 'Sign-in session');
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const signIn = async (email: string, password: string) => {
+    const user = await api.login(email, password);
+    const customerData = await api.loadCustomerData();
+    setCurrentUser({ ...user, id: String(user.id) });
+    setIsAuthenticated(true);
+    setTestDrives(customerData.testDrives);
+    setServiceAppointments(customerData.serviceAppointments);
+    setOrders(customerData.orders);
+    setGarage(customerData.garage);
+    setIsAuthModalOpen(false);
+    showToast(`Signed in as ${user.name}`, 'success', 'Welcome to CarCraft');
+  };
+
+  const signUp = async (input: { name: string; email: string; password: string; phone?: string }) => {
+    const user = await api.register(input);
+    setCurrentUser({ ...user, id: String(user.id) });
+    setIsAuthenticated(true);
+    setIsAuthModalOpen(false);
+    showToast('Your customer account has been created.', 'success', 'Welcome to CarCraft');
+  };
+
+  const signOut = () => {
+    api.clearSession();
+    setCurrentUser(INITIAL_USERS[0]);
+    setIsAuthenticated(false);
+    setTestDrives([]);
+    setServiceAppointments([]);
+    setOrders([]);
+    setGarage([]);
+    setCurrentPage('home');
+    showToast('You have been signed out.', 'info');
+  };
+
+  const grantDealershipAuthorization = () => {
+    if (isAuthenticated && currentUser.role === 'admin') {
+      setCurrentPage('admin');
+      return;
     }
+    setIsAuthModalOpen(true);
+    showToast('Sign in with a staff account to access dealership management.', 'info', 'Staff access required');
   };
 
   // Vehicle inventory CRUD
-  const addVehicle = (vehicleData: Omit<Vehicle, 'id'>) => {
-    const newVehicle: Vehicle = {
-      ...vehicleData,
-      id: `veh-${Date.now()}`
-    };
-    setVehicles((prev) => [newVehicle, ...prev]);
-    showToast(`Added ${newVehicle.year} ${newVehicle.make} ${newVehicle.model} to inventory`, 'success', 'Inventory Updated');
+  const addVehicle = async (vehicleData: Omit<Vehicle, 'id'>) => {
+    try {
+      const newVehicle = await api.createVehicle(vehicleData);
+      setVehicles((prev) => [newVehicle, ...prev]);
+      showToast(`Added ${newVehicle.year} ${newVehicle.make} ${newVehicle.model} to inventory`, 'success', 'Inventory Updated');
+    } catch (error) {
+      reportApiError(error, 'Could not add vehicle');
+    }
   };
 
-  const updateVehicle = (id: string, updates: Partial<Vehicle>) => {
-    setVehicles((prev) =>
-      prev.map((v) => (v.id === id ? { ...v, ...updates } : v))
-    );
-    showToast('Vehicle specifications saved successfully', 'success', 'Update Complete');
+  const updateVehicle = async (id: string, updates: Partial<Vehicle>) => {
+    try {
+      const updatedVehicle = await api.updateVehicle(id, updates);
+      setVehicles((prev) => prev.map((vehicle) => vehicle.id === id ? updatedVehicle : vehicle));
+      showToast('Vehicle specifications saved successfully', 'success', 'Update Complete');
+    } catch (error) {
+      reportApiError(error, 'Could not update vehicle');
+    }
   };
 
-  const deleteVehicle = (id: string) => {
+  const deleteVehicle = async (id: string) => {
     const veh = vehicles.find((v) => v.id === id);
-    setVehicles((prev) => prev.filter((v) => v.id !== id));
-    showToast(veh ? `Removed ${veh.make} ${veh.model}` : 'Vehicle removed', 'warning', 'Deleted from Inventory');
+    try {
+      await api.deleteVehicle(id);
+      setVehicles((prev) => prev.filter((v) => v.id !== id));
+      showToast(veh ? `Removed ${veh.make} ${veh.model}` : 'Vehicle removed', 'warning', 'Deleted from Inventory');
+    } catch (error) {
+      reportApiError(error, 'Could not delete vehicle');
+    }
   };
 
   // Wishlist
@@ -344,25 +393,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsTestDriveModalOpen(false);
   };
 
-  const bookTestDrive = (bookingData: Omit<TestDriveBooking, 'id' | 'bookingRef' | 'createdDate' | 'status'>) => {
-    const bookingRef = `TD-${Math.floor(10000 + Math.random() * 90000)}`;
-    const newBooking: TestDriveBooking = {
-      ...bookingData,
-      id: `td-${Date.now()}`,
-      bookingRef,
-      createdDate: new Date().toISOString().split('T')[0],
-      status: 'Confirmed'
-    };
-    setTestDrives((prev) => [newBooking, ...prev]);
-    showToast(`Test drive confirmed for ${newBooking.vehicleName}! Ref: ${bookingRef}`, 'success', 'Booking Confirmed');
-    return bookingRef;
+  const bookTestDrive = async (bookingData: Omit<TestDriveBooking, 'id' | 'bookingRef' | 'createdDate' | 'status'>) => {
+    if (!isAuthenticated) {
+      setIsAuthModalOpen(true);
+      showToast('Sign in before booking a test drive.', 'info', 'Sign-in required');
+      throw new Error('Sign in to book a test drive.');
+    }
+    try {
+      const newBooking = await api.createTestDrive(bookingData);
+      setTestDrives((prev) => [newBooking, ...prev]);
+      showToast(`Test drive confirmed for ${newBooking.vehicleName}! Ref: ${newBooking.bookingRef}`, 'success', 'Booking Confirmed');
+      return newBooking.bookingRef;
+    } catch (error) {
+      reportApiError(error, 'Could not book test drive');
+      throw error;
+    }
   };
 
-  const cancelTestDrive = (bookingId: string) => {
-    setTestDrives((prev) =>
-      prev.map((b) => (b.id === bookingId ? { ...b, status: 'Cancelled' as const } : b))
-    );
-    showToast('Test drive appointment has been cancelled', 'info');
+  const cancelTestDrive = async (bookingId: string) => {
+    try {
+      const booking = await api.cancelTestDrive(bookingId);
+      setTestDrives((prev) => prev.map((item) => item.id === bookingId ? booking : item));
+      showToast('Test drive appointment has been cancelled', 'info');
+    } catch (error) {
+      reportApiError(error, 'Could not cancel test drive');
+    }
   };
 
   // Cart operations
@@ -421,48 +476,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const placeOrder = (orderData: {
+  const placeOrder = async (orderData: {
     shippingAddress: string;
     deliveryMethod: 'Express Delivery' | 'Dealership Pickup';
     paymentMethod: string;
   }) => {
-    const subtotal = cart.reduce((sum, item) => sum + item.part.price * item.quantity, 0);
-    const discount = subtotal * discountRate;
-    const shipping = orderData.deliveryMethod === 'Dealership Pickup' ? 0 : 25;
-    const tax = (subtotal - discount) * 0.0825;
-    const total = subtotal - discount + shipping + tax;
-
-    const orderNumber = `CC-ORD-${Math.floor(10000 + Math.random() * 90000)}`;
-    const newOrder: Order = {
-      id: `ord-${Date.now()}`,
-      orderNumber,
-      date: new Date().toISOString().split('T')[0],
-      items: cart.map((c) => ({
-        partId: c.part.id,
-        partName: c.part.name,
-        partNumber: c.part.partNumber,
-        price: c.part.price,
-        quantity: c.quantity,
-        image: c.part.image
-      })),
-      subtotal,
-      discount,
-      shipping,
-      tax,
-      total,
-      status: 'Processing',
-      shippingAddress: orderData.shippingAddress,
-      deliveryMethod: orderData.deliveryMethod,
-      trackingNumber: `CC-FEDEX-${Math.floor(100000000 + Math.random() * 900000000)}`,
-      paymentMethod: orderData.paymentMethod
-    };
-
-    setOrders((prev) => [newOrder, ...prev]);
-    clearCart();
-    setPromoCode('');
-    setDiscountRate(0);
-    showToast(`Order placed successfully! Ref: ${orderNumber}`, 'success', 'Order Confirmed');
-    return newOrder;
+    try {
+      const newOrder = await api.createOrder({
+        ...orderData,
+        items: cart.map(({ part, quantity }) => ({ partId: part.id, quantity })),
+        promoCode,
+      });
+      setOrders((prev) => [newOrder, ...prev]);
+      clearCart();
+      setPromoCode('');
+      setDiscountRate(0);
+      showToast(`Order placed successfully! Ref: ${newOrder.orderNumber}`, 'success', 'Order Confirmed');
+      api.loadCatalog().then((catalog) => setParts(catalog.parts)).catch((error: unknown) => {
+        reportApiError(error, 'Could not refresh inventory');
+      });
+      return newOrder;
+    } catch (error) {
+      throw error;
+    }
   };
 
   // Services
@@ -475,7 +511,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsServiceModalOpen(true);
   };
 
-  const bookServiceAppointment = (appointmentData: {
+  const bookServiceAppointment = async (appointmentData: {
     vehicleDetails: ServiceAppointment['vehicleDetails'];
     serviceIds: string[];
     serviceNames: string[];
@@ -487,31 +523,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     loanerCarRequired: boolean;
     notes?: string;
   }) => {
-    const appointmentRef = `SRV-${Math.floor(10000 + Math.random() * 90000)}`;
-    const newAppointment: ServiceAppointment = {
-      ...appointmentData,
-      id: `srv-apt-${Date.now()}`,
-      appointmentRef,
-      customerName: currentUser.name,
-      customerEmail: currentUser.email,
-      customerPhone: currentUser.phone,
-      bayNumber: Math.floor(1 + Math.random() * 6),
-      technicianAssigned: 'David Chen (Master Certified Lead)',
-      status: 'Received',
-      progressPercent: 15,
-      inspectionLog: [
-        { step: 'Check-in & Visual Walkaround', status: 'in_progress', note: 'Checked in by service reception.' },
-        { step: 'Diagnostic Inspection', status: 'pending' },
-        { step: 'Parts & Mechanical Service', status: 'pending' },
-        { step: 'Road Test & Safety Check', status: 'pending' },
-        { step: 'Car Wash & Delivery Prep', status: 'pending' }
-      ]
-    };
-
-    setServiceAppointments((prev) => [newAppointment, ...prev]);
-    setIsServiceModalOpen(false);
-    showToast(`Service appointment booked! Reference: ${appointmentRef}`, 'success', 'Workshop Scheduled');
-    return appointmentRef;
+    if (!isAuthenticated) {
+      setIsAuthModalOpen(true);
+      showToast('Sign in before booking a service appointment.', 'info', 'Sign-in required');
+      throw new Error('Sign in to book a service appointment.');
+    }
+    try {
+      const newAppointment = await api.createServiceAppointment({
+        ...appointmentData,
+        customerName: currentUser.name,
+        customerEmail: currentUser.email,
+        customerPhone: currentUser.phone,
+      });
+      setServiceAppointments((prev) => [newAppointment, ...prev]);
+      setIsServiceModalOpen(false);
+      showToast(`Service appointment booked! Reference: ${newAppointment.appointmentRef}`, 'success', 'Workshop Scheduled');
+      return newAppointment.appointmentRef;
+    } catch (error) {
+      reportApiError(error, 'Could not book service appointment');
+      throw error;
+    }
   };
 
   const updateServiceStatus = (
@@ -526,44 +557,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       'Parts & Repair': 65,
       'Quality Check': 85,
       'Ready for Delivery': 95,
-      'Completed': 100
+      'Completed': 100,
+      'Cancelled': 0
     };
 
-    setServiceAppointments((prev) =>
-      prev.map((apt) => {
-        if (apt.id === appointmentId) {
-          return {
-            ...apt,
-            status,
-            progressPercent: percentMap[status] || apt.progressPercent,
-            bayNumber: bayNumber !== undefined ? bayNumber : apt.bayNumber,
-            technicianAssigned: technician || apt.technicianAssigned
-          };
-        }
-        return apt;
+    api.updateServiceAppointment(appointmentId, { status, bayNumber, technicianAssigned: technician })
+      .then((updated) => {
+        setServiceAppointments((prev) => prev.map((appointment) =>
+          appointment.id === appointmentId
+            ? { ...updated, progressPercent: percentMap[status] || updated.progressPercent }
+            : appointment
+        ));
+        showToast(`Service ticket status updated to "${status}"`, 'info', 'Workshop Live Sync');
       })
-    );
-    showToast(`Service ticket status updated to "${status}"`, 'info', 'Workshop Live Sync');
+      .catch((error: unknown) => reportApiError(error, 'Could not update service status'));
   };
 
   const cancelServiceAppointment = (appointmentId: string) => {
-    setServiceAppointments((prev) => prev.filter((a) => a.id !== appointmentId));
-    showToast('Service appointment cancelled', 'info');
+    api.cancelServiceAppointment(appointmentId).then((cancelled) => {
+      setServiceAppointments((prev) => prev.map((appointment) =>
+        appointment.id === appointmentId ? cancelled : appointment
+      ));
+      showToast('Service appointment cancelled', 'info');
+    }).catch((error: unknown) => reportApiError(error, 'Could not cancel appointment'));
   };
 
   // Garage
-  const addCarToGarage = (carData: Omit<CustomerCar, 'id'>) => {
-    const newCar: CustomerCar = {
-      ...carData,
-      id: `car-user-${Date.now()}`
-    };
-    setGarage((prev) => [newCar, ...prev]);
-    showToast(`Added ${newCar.year} ${newCar.make} ${newCar.model} to your garage`, 'success', 'Garage Updated');
+  const addCarToGarage = async (carData: Omit<CustomerCar, 'id'>) => {
+    if (!isAuthenticated) {
+      setIsAuthModalOpen(true);
+      showToast('Sign in to manage your vehicle garage.', 'info', 'Sign-in required');
+      return;
+    }
+    try {
+      const newCar = await api.addCustomerCar(carData);
+      setGarage((prev) => [newCar, ...prev]);
+      showToast(`Added ${newCar.year} ${newCar.make} ${newCar.model} to your garage`, 'success', 'Garage Updated');
+    } catch (error) {
+      reportApiError(error, 'Could not add vehicle to garage');
+    }
   };
 
-  const removeCarFromGarage = (carId: string) => {
-    setGarage((prev) => prev.filter((c) => c.id !== carId));
-    showToast('Vehicle removed from your garage', 'info');
+  const removeCarFromGarage = async (carId: string) => {
+    try {
+      await api.removeCustomerCar(carId);
+      setGarage((prev) => prev.filter((car) => car.id !== carId));
+      showToast('Vehicle removed from your garage', 'info');
+    } catch (error) {
+      reportApiError(error, 'Could not remove vehicle from garage');
+    }
   };
 
   return (
@@ -572,8 +614,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentPage,
         setCurrentPage,
         currentUser,
-        switchUserRole,
-        hasDealershipAuthorization: currentUser.role === 'admin',
+        isAuthenticated,
+        signIn,
+        signUp,
+        signOut,
+        hasDealershipAuthorization: isAuthenticated && currentUser.role === 'admin',
         grantDealershipAuthorization,
         isAuthModalOpen,
         setIsAuthModalOpen,
@@ -603,6 +648,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cancelTestDrive,
 
         parts,
+        services,
         selectedPart,
         setSelectedPart,
         cart,

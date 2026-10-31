@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { 
   X, 
@@ -44,6 +44,12 @@ export const TestDriveModal: React.FC = () => {
   const [specialRequests, setSpecialRequests] = useState('');
   const [bookingRefResult, setBookingRefResult] = useState<string>('');
 
+  useEffect(() => {
+    setDriverName(currentUser.name);
+    setDriverEmail(currentUser.email);
+    setDriverPhone(currentUser.phone);
+  }, [currentUser.name, currentUser.email, currentUser.phone]);
+
   if (!isTestDriveModalOpen) return null;
 
   const activeVehicle = vehicles.find((v) => v.id === selectedVehicleId) || testDriveVehicle || vehicles[0];
@@ -56,11 +62,12 @@ export const TestDriveModal: React.FC = () => {
     '04:30 PM - 05:15 PM'
   ];
 
-  const handleConfirm = (e: React.FormEvent) => {
+  const handleConfirm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeVehicle) return;
 
-    const ref = bookTestDrive({
+    try {
+      const ref = await bookTestDrive({
       vehicleId: activeVehicle.id,
       vehicleName: `${activeVehicle.year} ${activeVehicle.make} ${activeVehicle.model}`,
       vehicleImage: activeVehicle.images[0],
@@ -74,10 +81,13 @@ export const TestDriveModal: React.FC = () => {
       branch: selectedBranch,
       salesAdvisor: 'Marcus Vance',
       specialRequests: specialRequests
-    });
+      });
 
-    setBookingRefResult(ref);
-    setStep(4);
+      setBookingRefResult(ref);
+      setStep(4);
+    } catch {
+      // The app context displays the API error toast.
+    }
   };
 
   return (

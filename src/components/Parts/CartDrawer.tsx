@@ -24,7 +24,10 @@ export const CartDrawer: React.FC = () => {
     promoCode,
     discountRate,
     applyPromoCode,
-    setCurrentPage 
+    setCurrentPage,
+    isAuthenticated,
+    setIsAuthModalOpen,
+    showToast
   } = useApp();
 
   const [inputCoupon, setInputCoupon] = useState('');
@@ -216,7 +219,14 @@ export const CartDrawer: React.FC = () => {
                 </div>
 
                 <button
-                  onClick={() => setIsCheckoutModalOpen(true)}
+                  onClick={() => {
+                    if (!isAuthenticated) {
+                      setIsAuthModalOpen(true);
+                      showToast('Sign in before checking out.', 'info', 'Sign-in required');
+                      return;
+                    }
+                    setIsCheckoutModalOpen(true);
+                  }}
                   className="w-full py-3.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold text-xs shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-2"
                 >
                   <Lock className="w-4 h-4" />
@@ -252,7 +262,7 @@ interface CheckoutModalProps {
 }
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const { cart, currentUser, placeOrder, discountRate } = useApp();
+  const { cart, currentUser, placeOrder, discountRate, showToast } = useApp();
 
   const [deliveryMethod, setDeliveryMethod] = useState<'Express Delivery' | 'Dealership Pickup'>('Express Delivery');
   const [shippingAddress, setShippingAddress] = useState(currentUser.address || '742 Evergreen Terrace, San Francisco, CA 94107');
@@ -267,18 +277,21 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, o
   const tax = (subtotal - discount) * 0.0825;
   const total = subtotal - discount + shipping + tax;
 
-  const handleSubmitOrder = (e: React.FormEvent) => {
+  const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    setTimeout(() => {
-      placeOrder({
+    try {
+      await placeOrder({
         shippingAddress: deliveryMethod === 'Dealership Pickup' ? 'CarCraft Metro Flagship - Pickup Bay 2' : shippingAddress,
         deliveryMethod,
         paymentMethod
       });
-      setIsSubmitting(false);
       onSuccess();
-    }, 600);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Order could not be placed.', 'error', 'Checkout failed');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

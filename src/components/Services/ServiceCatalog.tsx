@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ServicePackage, ServiceAppointment } from '../../types';
-import { SERVICE_PACKAGES } from '../../data/mockData';
 import { 
   Wrench, 
   Clock, 
@@ -19,6 +18,7 @@ import {
 export const ServiceCatalog: React.FC = () => {
   const { 
     openServiceBookingModal, 
+    services,
     serviceAppointments, 
     currentUser, 
     setCurrentPage 
@@ -135,7 +135,7 @@ export const ServiceCatalog: React.FC = () => {
 
         {/* Packages Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {SERVICE_PACKAGES.map((pkg) => (
+          {services.map((pkg) => (
             <div
               key={pkg.id}
               className="bg-white rounded-2xl border border-gray-200 hover:border-blue-400 shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between p-6 relative group"

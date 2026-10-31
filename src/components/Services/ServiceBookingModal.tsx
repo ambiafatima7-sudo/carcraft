@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { SERVICE_PACKAGES } from '../../data/mockData';
 import { 
   X, 
   Wrench, 
@@ -20,6 +19,7 @@ export const ServiceBookingModal: React.FC = () => {
     isServiceModalOpen, 
     setIsServiceModalOpen, 
     preselectedServiceId, 
+    services,
     garage, 
     branches, 
     currentUser, 
@@ -28,9 +28,7 @@ export const ServiceBookingModal: React.FC = () => {
   } = useApp();
 
   // Selected Services
-  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>(() => {
-    return preselectedServiceId ? [preselectedServiceId] : ['srv-1'];
-  });
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
 
   // Vehicle Source: 'garage' or 'custom'
   const [vehicleSource, setVehicleSource] = useState<'garage' | 'custom'>(
@@ -51,6 +49,17 @@ export const ServiceBookingModal: React.FC = () => {
   const [loanerCarRequired, setLoanerCarRequired] = useState(true);
   const [notes, setNotes] = useState('');
 
+  useEffect(() => {
+    if (!isServiceModalOpen || services.length === 0) return;
+    const validSelection = selectedServiceIds.filter((id) => services.some((service) => service.id === id));
+    if (validSelection.length) {
+      if (validSelection.length !== selectedServiceIds.length) setSelectedServiceIds(validSelection);
+      return;
+    }
+    const selected = services.find((service) => service.id === preselectedServiceId) || services[0];
+    setSelectedServiceIds([selected.id]);
+  }, [isServiceModalOpen, preselectedServiceId, services, selectedServiceIds]);
+
   if (!isServiceModalOpen) return null;
 
   const toggleService = (id: string) => {
@@ -59,10 +68,10 @@ export const ServiceBookingModal: React.FC = () => {
     );
   };
 
-  const selectedPackages = SERVICE_PACKAGES.filter((p) => selectedServiceIds.includes(p.id));
+  const selectedPackages = services.filter((p) => selectedServiceIds.includes(p.id));
   const totalEstimate = selectedPackages.reduce((acc, p) => acc + p.price, 0);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     let vehicleDetails;
@@ -85,20 +94,23 @@ export const ServiceBookingModal: React.FC = () => {
       };
     }
 
-    bookServiceAppointment({
-      vehicleDetails,
-      serviceIds: selectedServiceIds,
-      serviceNames: selectedPackages.map((p) => p.title),
-      totalEstimate,
-      date: appointmentDate,
-      timeSlot: appointmentSlot,
-      branch: selectedBranch,
-      pickupRequired,
-      loanerCarRequired,
-      notes
-    });
-
-    setCurrentPage('account');
+    try {
+      await bookServiceAppointment({
+        vehicleDetails,
+        serviceIds: selectedServiceIds,
+        serviceNames: selectedPackages.map((p) => p.title),
+        totalEstimate,
+        date: appointmentDate,
+        timeSlot: appointmentSlot,
+        branch: selectedBranch,
+        pickupRequired,
+        loanerCarRequired,
+        notes
+      });
+      setCurrentPage('account');
+    } catch {
+      // The app context displays the API error toast.
+    }
   };
 
   return (
@@ -233,7 +245,7 @@ export const ServiceBookingModal: React.FC = () => {
               2. Select Workshop Services (Multi-select)
             </label>
             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              {SERVICE_PACKAGES.map((pkg) => {
+              {services.map((pkg) => {
                 const isSelected = selectedServiceIds.includes(pkg.id);
                 return (
                   <div

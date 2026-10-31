@@ -135,7 +135,8 @@ export type ServiceStatus =
   | 'Parts & Repair' 
   | 'Quality Check' 
   | 'Ready for Delivery' 
-  | 'Completed';
+  | 'Completed'
+  | 'Cancelled';
 
 export interface ServicePackage {
   id: string;
