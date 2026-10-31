@@ -1,0 +1,6 @@
+{
+  "name": "CarCraft — Automotive Inventory & Dealership Suite",
+  "description": "Enterprise automotive dealership and inventory management suite with vehicle showroom, test drive booking, parts store, service appointment scheduling, customer portal, and admin ERP dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
